@@ -123,42 +123,74 @@ if st.button("Generate Image"):
             # Display initial message
             status_text.info("Starting image generation. This may take few minutes, please be patient...")
             
-            # Extremely long timeout for the request
+            # Start timing
             start_time = time.time()
             
-            # Make the request with a very long timeout (25 minutes to be safe)
-            status_text.info("Generating your Pokémon image... (this can take 10-15 minutes)")
+            # Make the API call ONCE, outside the progress loop
+            # Make API call in a separate thread so we can show progress
+            import threading
             
-            # Simulate progress since we don't have real-time updates
-            for percent_complete in range(1, 101):
-                # Update every ~10-12 seconds for a ~16 minute process
-                time.sleep(10)  
-                progress_bar.progress(percent_complete)
-                
-                if percent_complete < 10:
-                    status_text.info("Initializing generation process...")
-                elif percent_complete < 30:
-                    status_text.info("Starting to create your Pokémon...")
-                elif percent_complete < 60:
-                    status_text.info("Generating image details...")
-                elif percent_complete < 90:
-                    status_text.info("Refining your Pokémon image...")
-                else:
-                    status_text.info("Almost done! Finalizing image...")
-                    
-                # Actual API call with very long timeout
-                response = requests.post(
-                    API_URL,
-                    json={"prompt": prompt},
-                    timeout=1500  # 25 minutes in seconds
-                )
-                
-                if response.status_code == 200:
-                    # Success! Break out of the progress loop
+            result_container = {"response": None, "error": None, "completed": False}
+            
+            def make_api_call():
+                try:
+                    result_container["response"] = requests.post(
+                        API_URL,
+                        json={"prompt": prompt},
+                        timeout=1500  # 25 minutes in seconds
+                    )
+                except Exception as e:
+                    result_container["error"] = e
+                finally:
+                    result_container["completed"] = True
+            
+            # Start the API call in background
+            api_thread = threading.Thread(target=make_api_call)
+            api_thread.start()
+            
+            # Show progress animation while waiting for the API call to complete
+            progress_milestones = {
+                10: "Initializing generation process...",
+                30: "Starting to create your Pokémon...",
+                60: "Generating image details...",
+                90: "Refining your Pokémon image...",
+                99: "Almost done! Finalizing image..."
+            }
+            
+            # Use a gentler progress update interval
+            update_interval = 0.5  # seconds
+            max_wait_time = 1500  # 25 minutes in seconds
+            steps = 100
+            
+            for i in range(1, steps + 1):
+                # Check if API call is done
+                if result_container["completed"]:
+                    progress_bar.progress(100)
                     break
+                    
+                # Update progress bar
+                progress = min(99, i)  # Cap at 99% until complete
+                progress_bar.progress(progress)
+                
+                # Update status text at milestones
+                for threshold, message in progress_milestones.items():
+                    if progress <= threshold and (progress + 100/steps) > threshold:
+                        status_text.info(message)
+                
+                # Sleep for a bit - adjust this for smoother updates
+                time_elapsed = time.time() - start_time
+                if time_elapsed > max_wait_time:
+                    break
+                    
+                time.sleep(update_interval)
             
-            # Process response
-            if response.status_code == 200:
+            # Process the response
+            if result_container["error"]:
+                raise result_container["error"]
+                
+            response = result_container["response"]
+            
+            if response and response.status_code == 200:
                 image_data = response.json()["image"]
                 
                 # Clear progress indicators
@@ -186,8 +218,10 @@ if st.button("Generate Image"):
                     file_name="generated_pokemon.png",
                     mime="image/png"
                 )
-            else:
+            elif response:
                 st.error(f"Error: Server returned status code {response.status_code}")
+            else:
+                st.error("No response received from the server")
                 
         except requests.exceptions.Timeout:
             st.error("⚠️ The request timed out after 25 minutes. The server may be overloaded.")
@@ -195,6 +229,7 @@ if st.button("Generate Image"):
             st.error(f"Error communicating with the image generator: {str(e)}")
         except Exception as e:
             st.error(f"Error processing the image: {str(e)}")
+
 
 # Information section
 with st.expander("About This App"):
