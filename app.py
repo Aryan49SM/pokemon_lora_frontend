@@ -120,16 +120,13 @@ if st.button("Generate Image"):
             progress_bar = progress_placeholder.progress(0)
             status_text = st.empty()
             
-            # Display initial message
-            status_text.info("Starting image generation. This may take few minutes, please be patient...")
-            
             # Start timing
             start_time = time.time()
             
-            # Make the API call ONCE, outside the progress loop
-            # Make API call in a separate thread so we can show progress
+            # Make one API call - this is the ONLY place we call the API
             import threading
             
+            # Container to store API response and status
             result_container = {"response": None, "error": None, "completed": False}
             
             def make_api_call():
@@ -137,7 +134,7 @@ if st.button("Generate Image"):
                     result_container["response"] = requests.post(
                         API_URL,
                         json={"prompt": prompt},
-                        timeout=1500  # 25 minutes in seconds
+                        timeout=1800  # 30 minutes in seconds
                     )
                 except Exception as e:
                     result_container["error"] = e
@@ -148,43 +145,64 @@ if st.button("Generate Image"):
             api_thread = threading.Thread(target=make_api_call)
             api_thread.start()
             
-            # Show progress animation while waiting for the API call to complete
-            progress_milestones = {
-                10: "Initializing generation process...",
-                30: "Starting to create your Pokémon...",
-                60: "Generating image details...",
-                90: "Refining your Pokémon image...",
-                99: "Almost done! Finalizing image..."
-            }
+            # Status messages
+            status_messages = [
+                "Initializing generation process...",
+                "Starting to create your Pokémon...",
+                "Building the basic shape...",
+                "Adding colors and patterns...",
+                "Working on the details...",
+                "Generating image features...",
+                "Refining your Pokémon image...",
+                "Almost done! Finalizing image...",
+                "Waiting for the server to respond...",
+                "Still waiting - image generation can take 15-20 minutes...",
+                "Please continue to wait - complex images take time...",
+                "Image is being processed by the server..."
+            ]
             
-            # Use a gentler progress update interval
-            update_interval = 0.5  # seconds
-            max_wait_time = 1500  # 25 minutes in seconds
-            steps = 100
+            # MUCH slower progress bar - configured for very long wait times
+            max_wait_seconds = 1500  # 25 minutes
             
-            for i in range(1, steps + 1):
-                # Check if API call is done
+            # Calculate timing parameters
+            total_steps = 100
+            time_per_step = max_wait_seconds / total_steps
+            
+            # Determines how slowly the progress bar moves - higher = slower
+            slowness_factor = 3
+            
+            # Run a loop that progresses very slowly
+            for step in range(1, total_steps + 1):
+                # Stop if we've got a response
                 if result_container["completed"]:
+                    # Immediately jump to 100%
                     progress_bar.progress(100)
                     break
-                    
-                # Update progress bar
-                progress = min(99, i)  # Cap at 99% until complete
-                progress_bar.progress(progress)
                 
-                # Update status text at milestones
-                for threshold, message in progress_milestones.items():
-                    if progress <= threshold and (progress + 100/steps) > threshold:
-                        status_text.info(message)
+                # Calculate progress - be conservative so we don't hit 100% too soon
+                progress = min(95, step * (95 / total_steps))
+                progress_bar.progress(int(progress))
                 
-                # Sleep for a bit - adjust this for smoother updates
-                time_elapsed = time.time() - start_time
-                if time_elapsed > max_wait_time:
+                # Show status messages - cycle through them based on progress
+                message_index = int((step / total_steps) * len(status_messages))
+                if message_index >= len(status_messages):
+                    message_index = len(status_messages) - 1
+                status_text.info(status_messages[message_index])
+                
+                # Sleep for longer periods to make the progress bar move very slowly
+                # This means we'll wait for the API response for up to max_wait_seconds
+                time.sleep(time_per_step * slowness_factor)
+                
+                # Check if we've waited too long
+                if time.time() - start_time > max_wait_seconds:
+                    # Don't give up! Just stop advancing the progress bar but keep waiting
+                    status_text.warning("Taking longer than expected, but still waiting...")
+                    # Wait for completion with periodic checks
+                    while not result_container["completed"]:
+                        time.sleep(5)
                     break
-                    
-                time.sleep(update_interval)
             
-            # Process the response
+            # Process the response (after the thread finishes)
             if result_container["error"]:
                 raise result_container["error"]
                 
@@ -229,7 +247,6 @@ if st.button("Generate Image"):
             st.error(f"Error communicating with the image generator: {str(e)}")
         except Exception as e:
             st.error(f"Error processing the image: {str(e)}")
-
 
 # Information section
 with st.expander("About This App"):
