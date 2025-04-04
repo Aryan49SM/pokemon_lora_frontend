@@ -102,105 +102,58 @@ if st.button("Generate Image"):
         st.error("Please enter the backend address first")
         st.stop()
         
-    # Check if backend is available
-    try:
-        response = requests.get(HEALTH_URL, timeout=10)
-        if response.status_code != 200:
-            st.error("⚠️ Backend is not responding correctly")
-            st.stop()
-    except requests.exceptions.RequestException:
-        st.error("⚠️ Backend is offline. Please start your Azure VM.")
-        st.stop()
-        
-    # Create progress bar
-    progress_bar = st.progress(0)
-    
-    # Use threading to make API call in background
-    import threading
-    
-    # Container to store API response
-    result = {"response": None, "error": None, "done": False}
-    
-    # Function to call API
-    def call_api():
+    with st.spinner("Generating image (this will take 6-10 minutes)..."):
         try:
-            result["response"] = requests.post(
+            # Direct API call without threading - simplest approach
+            start_time = time.time()
+            
+            # Make the request with a very generous timeout
+            response = requests.post(
                 API_URL,
                 json={"prompt": prompt},
-                timeout=900  # 15 minutes timeout (more than needed)
+                timeout=1200  # 20 minutes timeout
             )
+            
+            # Process the response
+            if response.status_code == 200:
+                try:
+                    # Parse the JSON response
+                    response_data = response.json()
+                    image_data = response_data["image"]
+                    
+                    # Calculate generation time
+                    generation_time = int(time.time() - start_time)
+                    
+                    # Show success message
+                    st.success(f"✨ Image generated in {generation_time} seconds")
+                    
+                    # Display the image
+                    st.image(
+                        f"data:image/png;base64,{image_data}",
+                        caption=prompt,
+                        use_container_width=True
+                    )
+                    
+                    # Add download button
+                    image_binary = base64.b64decode(image_data)
+                    st.download_button(
+                        label="Download Image",
+                        data=image_binary,
+                        file_name="generated_pokemon.png",
+                        mime="image/png"
+                    )
+                except Exception as e:
+                    st.error(f"Error processing image data: {str(e)}")
+            else:
+                st.error(f"Server returned status code {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            st.error("Request timed out. The server might be taking too long to generate the image.")
+        except requests.exceptions.ConnectionError:
+            st.error("Connection error. Please check if the server is running.")
         except Exception as e:
-            result["error"] = e
-        finally:
-            result["done"] = True
-    
-    # Start API call in background
-    api_thread = threading.Thread(target=call_api)
-    api_thread.start()
-    
-    # Record start time
-    start_time = time.time()
-    
-    # Simple progress bar for 10 minutes (600 seconds)
-    max_wait = 600  # 10 minutes
-    
-    # Update progress bar every 3 seconds
-    while not result["done"] and time.time() - start_time < max_wait:
-        # Calculate progress as percentage of time passed
-        elapsed = time.time() - start_time
-        progress = min(99, int((elapsed / max_wait) * 100))
-        progress_bar.progress(progress)
-        time.sleep(3)  # Update every 3 seconds
-    
-    # Continue waiting if needed
-    if not result["done"]:
-        progress_bar.progress(99)  # Stay at 99%
-        api_thread.join()  # Wait for thread to complete
-    
-    # Check for errors
-    if result["error"]:
-        st.error(f"Error: {str(result['error'])}")
-        st.stop()
-    
-    # Get response
-    response = result["response"]
-    if not response:
-        st.error("No response received from server")
-        st.stop()
-        
-    if response.status_code != 200:
-        st.error(f"Error: Server returned status code {response.status_code}")
-        st.stop()
-    
-    # Process successful response
-    try:
-        image_data = response.json()["image"]
-        
-        # Complete progress bar
-        progress_bar.progress(100)
-        
-        # Calculate generation time
-        generation_time = int(time.time() - start_time)
-        st.success(f"✨ Image generated in {generation_time} seconds")
-        
-        # Display image
-        st.image(
-            f"data:image/png;base64,{image_data}",
-            caption=prompt,
-            use_container_width=True
-        )
-        
-        # Add download button
-        image_binary = base64.b64decode(image_data)
-        st.download_button(
-            label="Download Image",
-            data=image_binary,
-            file_name="generated_pokemon.png",
-            mime="image/png"
-        )
-    except Exception as e:
-        st.error(f"Error processing the image: {str(e)}")
-
+            st.error(f"Error: {str(e)}")
+            
 # Information section
 with st.expander("About This App"):
     st.markdown("""
