@@ -107,18 +107,24 @@ if st.button("Generate Image"):
             # Direct API call without threading - simplest approach
             start_time = time.time()
             
+            status_text = st.empty()
+            status_text.text("Generating image...")
+            
             # Make the request with a very generous timeout
             response = requests.post(
                 API_URL,
                 json={"prompt": prompt},
                 timeout=1200  # 20 minutes timeout
             )
-            
+            status_text.text("Request completed, processing response...")
             # Process the response
             if response.status_code == 200:
                 try:
                     # Parse the JSON response
                     response_data = response.json()
+                    
+                    status_text.text("Response parsed, displaying image...")
+                    
                     image_data = response_data["image"]
                     
                     # Calculate generation time
